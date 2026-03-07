@@ -1,0 +1,37 @@
+/* src/components/LabelsTable.css */
+
+.labels-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font-size: 16px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.labels-table thead tr {
+  background-color: #00297A; /* Okta Blue */
+  color: #ffffff;
+  text-align: left;
+}
+
+.labels-table th,
+.labels-table td {
+  padding: 12px 15px;
+  border: 1px solid #dddddd;
+}
+
+.labels-table tbody tr {
+  border-bottom: 1px solid #dddddd;
+}
+
+.labels-table tbody tr:nth-of-type(even) {
+  background-color: #f3f3f3;
+}
+
+.labels-table tbody tr:last-of-type {
+  border-bottom: 2px solid #00297A;
+}
+
+.labels-table tbody tr:hover {
+  background-color: #e6f7ff;
+}

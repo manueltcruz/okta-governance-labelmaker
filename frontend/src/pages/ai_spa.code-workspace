@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../htdocs/ai_spa"
+		},
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../ai-bff-server"
+		}
+	],
+	"settings": {}
+}
