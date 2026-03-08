@@ -27,8 +27,8 @@ const ProfileDropdown = ({ userName, onLogout }) => {
         aria-haspopup="menu"
         aria-expanded={open}
         sx={{
-          display: 'flex', alignItems: 'center', gap: 1.5,
-          width: '100%', px: 1.5, py: 1, borderRadius: 2,
+          display: 'flex', alignItems: 'center', gap: 2,
+          width: '100%', px: 2, py: 1, borderRadius: 2,
           border: '1px solid', borderColor: 'divider',
           background: 'white', cursor: 'pointer',
           transition: 'background 150ms',
@@ -54,7 +54,7 @@ const ProfileDropdown = ({ userName, onLogout }) => {
         transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         slotProps={{ paper: { sx: { width: 240, mt: -1 } } }}
       >
-        <Box sx={{ px: 2, py: 1.5 }}>
+        <Box sx={{ px: 2, py: 2 }}>
           <Typography variant="caption" color="text.secondary">Signed in as</Typography>
           <Typography variant="body2" fontWeight={600} noWrap>{displayName}</Typography>
         </Box>

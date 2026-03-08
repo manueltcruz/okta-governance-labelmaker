@@ -327,9 +327,23 @@ app.delete(
       res.json(response.data);
     } catch (error) {
       console.error('Error deleting Okta label value:', error?.response?.data || error.message);
+      const oktaError = error?.response?.data;
+      const oktaMsg   = JSON.stringify(oktaError || '').toLowerCase();
+      const isInUse   = error?.response?.status === 409
+        || oktaMsg.includes('assigned')
+        || oktaMsg.includes('in use')
+        || oktaMsg.includes('constraint')
+        || oktaMsg.includes('cannot remove')
+        || oktaMsg.includes('still referenced');
+      if (isInUse) {
+        return res.status(409).json({
+          error: 'This label value is still assigned to one or more resources and cannot be deleted. Remove all assignments first, then try again.',
+          detail: oktaError,
+        });
+      }
       res.status(500).json({
         error: 'Failed to delete label value in Okta.',
-        detail: error?.response?.data || error.message,
+        detail: oktaError || error.message,
       });
     }
   }

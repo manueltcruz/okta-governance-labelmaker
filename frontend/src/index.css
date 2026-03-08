@@ -1,38 +1,36 @@
 /* frontend/src/index.css */
-/* Stage 1: OdysseyProvider handles font (Aeonik) and base theme tokens.
-   CSS vars below are kept as bridge values so existing Tailwind/inline
-   styles still render while we progressively migrate to Odyssey components. */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  /* Okta Odyssey palette equivalents — used by existing hand-rolled components */
-  --color-bg:             #f4f4f4;
-  --color-surface:        #ffffff;
-  --color-border:         #d7d7d7;
-  --color-border-subtle:  #ebebeb;
-  --color-text-primary:   #1d1d21;
-  --color-text-secondary: #6e6e78;
-  --color-text-muted:     #a1a1aa;
-  --color-accent:         #00297a;   /* Okta Odyssey primary blue */
-  --color-accent-hover:   #001f5c;
-  --color-accent-subtle:  #e8f0fe;
-  --color-danger:         #d32f2f;
-  --color-danger-subtle:  #fff5f5;
-  --color-danger-border:  #ffcdd2;
-  --color-success:        #1b7f4f;
-  --color-success-subtle: #f0faf5;
-
-  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-border: #e4e7ec;
+  --color-border-subtle: #f0f2f5;
+  --color-text-primary: #101828;
+  --color-text-secondary: #475467;
+  --color-text-muted: #98a2b3;
+  --color-accent: #4b4b4b;
+  --color-accent-hover: #36404a;
+  --color-accent-subtle: #f0f0f0;
+  --color-accent-border: #d5d5d5;
+  --color-accent-text: #2a2a2a;
+  --color-danger: #d92d20;
+  --color-danger-subtle: #fef3f2;
+  --color-danger-border: #fecdca;
+  --color-success: #039855;
+  --color-success-subtle: #ecfdf3;
+  --shadow-xs: 0 1px 2px 0 rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(16, 24, 40, 0.1), 0 1px 2px -1px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.1), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 }
 
 @layer components {
@@ -99,7 +97,7 @@
     border: 1px solid var(--color-danger-border);
   }
   .btn-danger:hover:not(:disabled) {
-    background: #ffe0e0;
+    background: #fee4e2;
   }
 
   .btn-ghost {
@@ -122,7 +120,7 @@
   .input:focus {
     outline: none;
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px rgba(0, 41, 122, 0.12);
+    box-shadow: 0 0 0 3px rgba(75, 75, 75, 0.12);
   }
   .input:disabled { background: var(--color-bg); cursor: not-allowed; opacity: 0.6; }
 
@@ -153,14 +151,14 @@
   .pill-blue {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
     background: var(--color-accent-subtle);
-    border: 1px solid #b3c8fd;
-    color: var(--color-accent);
+    border: 1px solid var(--color-accent-border);
+    color: var(--color-accent-text);
   }
 
   .pill-success {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
     background: var(--color-success-subtle);
-    border: 1px solid #a7e6c8;
+    border: 1px solid #a9efc5;
     color: var(--color-success);
   }
 
@@ -172,13 +170,13 @@
   .nav-item.active {
     background: var(--color-accent-subtle);
     color: var(--color-accent);
-    border: 1px solid #b3c8fd;
+    border: 1px solid var(--color-accent-border);
   }
 
   .avatar {
     @apply flex h-9 w-9 flex-none items-center justify-center rounded-lg text-xs font-semibold;
     background: var(--color-accent-subtle);
-    border: 1px solid #b3c8fd;
+    border: 1px solid var(--color-accent-border);
     color: var(--color-accent);
   }
 
@@ -208,6 +206,7 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
+  font-family: 'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--color-bg);
   color: var(--color-text-primary);
@@ -215,7 +214,7 @@ body {
   line-height: 1.6;
 }
 
-code, pre { font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace; }
+code, pre { font-family: 'DM Mono', ui-monospace, monospace; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

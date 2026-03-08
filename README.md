@@ -1,8 +1,8 @@
 # Okta OIG Manager (React + Node.js Monorepo)
 
-**Version 2.0**
+**Version 2.5**
 
-A web application for managing Okta Identity Governance (OIG) Resource Labels. Create and manage label categories and values, assign them to groups, applications, and entitlements, and search for labeled resources across your org.
+Okta OIG Manager is a web application for managing Okta Identity Governance (OIG) resource labels. It allows administrators to create and manage label categories and values, assign labels to groups, applications, and entitlement values, and gain visibility into label coverage across the org.
 
 This repository contains a React single-page application (Vite) and a Node.js (Express) backend in a single GitHub repo.
 
@@ -13,21 +13,30 @@ This repository contains a React single-page application (Vite) and a Node.js (E
 
 ---
 
+## What's New in v2.5
+
+### Dashboard
+The Dashboard provides a high-level summary of label coverage across the org. It shows the total number of label categories and values configured, how many groups and applications have at least one label assigned, and highlights resources that remain unlabeled. This gives administrators an at-a-glance view of governance label adoption and gaps.
+
+### Bulk Assign
+Bulk Assign allows administrators to assign a label value to multiple resources in a single operation, rather than assigning labels one resource at a time. Administrators select a resource type (Groups, Applications, or Entitlement Values), choose the specific resources to label, select a label value, and confirm the assignment. The tool reports success and failure status for each resource in the batch.
+
+### Label Manager Enhancements
+Label categories and values can now be fully managed within the app. Administrators can add new values to existing categories inline, and delete values that are no longer needed. Deleting a value that is still assigned to one or more resources is blocked with a clear explanation.
+
+### Label Search
+The Label Search page allows administrators to find all resources assigned a specific label value. Search results can be unassigned individually or in bulk directly from the results list, without navigating away.
+
+---
+
 ## Features
 
-### Manage
-
-| Page | Description |
-|---|---|
-| **Label Manager** | Create label categories and values. Edit value names and colors. Delete categories. |
-| **Groups** | Browse Okta Universal Directory groups. Assign and unassign label values per group. |
-| **Applications** | Browse entitlement-enabled applications. Assign labels to apps and to individual entitlement values. |
-
-### Explore
-
-| Page | Description |
-|---|---|
-| **Label Search** | Select a label category and value to see all resources currently tagged with it. Filter results by resource type (Application, Group, Entitlement). |
+- **Dashboard** — label coverage overview across groups, apps, and entitlements
+- **Label Manager** — create, edit, and delete label categories and values
+- **Groups** — browse directory groups and manage their label assignments
+- **Applications** — browse entitlement-enabled apps, manage app-level labels, and assign labels to entitlement values
+- **Label Search** — find all resources tagged with a given label value and unassign directly from results
+- **Bulk Assign** — assign a label value to multiple groups, applications, or entitlement values at once
 
 ---
 
@@ -35,16 +44,16 @@ This repository contains a React single-page application (Vite) and a Node.js (E
 
 ```
 okta-governance-labelmaker/
-├── frontend/               # React + Vite SPA
-│   └── src/
-│       ├── components/     # Shared UI components
-│       ├── pages/          # Page-level components
-│       └── utils/
-├── backend/
-│   └── server.js           # Express API (BFF)
-├── .env                    # Shared environment file (repo root)
-├── package.json            # Root scripts
-└── README.md
+    ├── frontend/               # React + Vite SPA
+    │   └── src/
+    │       ├── components/
+    │       └── pages/
+    ├── backend/                # Express API (BFF)
+    ├── .env                    # Shared environment file (root)
+    ├── .env.example
+    ├── .gitignore
+    ├── package.json            # Root scripts
+    └── README.md
 ```
 
 ---
@@ -53,55 +62,50 @@ okta-governance-labelmaker/
 
 ### 1) Okta Tenant & Application Setup
 
-This app requires **Okta Identity Governance** to be enabled on the tenant.
-
-It relies on two OAuth applications:
+This app requires Okta Identity Governance to be enabled on the tenant. It relies on two OAuth applications.
 
 #### Frontend SPA App
 
-Create a new App Integration → **OIDC - OpenID Connect → Single-Page Application** with:
-
+Create an App Integration → OIDC - OpenID Connect → Single-Page Application with:
 - **Client Credentials:** Require PKCE as additional verification
-- **Grant types:** Authorization Code + Interaction Code
+- **Grant types:** Authorization Code, Interaction Code
 - **Sign-in redirect URI:** `http://localhost:5173/login/callback`
 
-Note the **Client ID** — needed for `VITE_OKTA_CLIENT_ID` and `OKTA_CLIENT_ID` in `.env`.
+Note the Client ID — used for `VITE_OKTA_CLIENT_ID` and `OKTA_CLIENT_ID` in `.env`.
 
 #### Backend Service App
 
-Create a new App Integration → **API Services**. Note the **Client ID** — needed for `BFF_CLIENT_ID` in `.env`.
+Create an App Integration → API Services application with:
+- **Client authentication:** Public key / Private key
+- Add your public key under General → Public Keys; add the private key to `.env` as `BFF_PRIVATE_KEY`
 
-For authentication, set **Client authentication** to `Public key / Private key`. Add the public key to the app's General → Public Keys section, and add the private key to `BFF_PRIVATE_KEY` in `.env`.
-
-Useful references:
+Resources for key generation:
 - https://jwkset.com/generate
 - https://developer.okta.com/docs/guides/key-management/main/
 
-Grant the service app the following **Okta API Scopes**:
-
-```
-okta.apps.read
-okta.governance.entitlements.read
-okta.governance.labels.manage
-okta.governance.labels.read
-okta.governance.resourceOwner.read
-okta.groups.manage
-okta.groups.read
-```
-
-> **Note:** `okta.governance.entitlements.read` is required for the Applications page to load entitlement categories and values. The original scope list has been updated to reflect the routes currently in use.
+Grant the service app the following Okta API Scopes:
+- `okta.apps.manage`
+- `okta.apps.read`
+- `okta.directories.groups.manage`
+- `okta.governance.entitlements.read`
+- `okta.governance.labels.manage`
+- `okta.governance.labels.read`
+- `okta.governance.resourceOwner.manage`
+- `okta.governance.resourceOwner.read`
+- `okta.groups.manage`
+- `okta.groups.read`
 
 #### Additional Okta Configuration
 
-**API Access Management** must be enabled on the tenant.
+API Access Management must be enabled on the tenant.
 
 ---
 
 ### 2) Install Git
 
-- macOS: `xcode-select --install`
-- Windows: install Git for Windows
-- Linux: install via your package manager (e.g., apt, dnf)
+- **macOS:** `xcode-select --install`
+- **Windows:** install Git for Windows
+- **Linux:** install via your package manager (e.g. `apt`, `dnf`)
 
 ### 3) Install Node.js + npm (LTS recommended)
 
@@ -110,10 +114,7 @@ node -v
 npm -v
 ```
 
-If your Node version is very new (e.g. Node 25+) and you hit tooling issues, install an LTS version (Node 20 or 22).
-
-Recommended (optional): **nvm** (Node Version Manager)
-
+If using **nvm**:
 ```bash
 nvm install --lts
 nvm use --lts
@@ -133,10 +134,10 @@ cd okta-governance-labelmaker
 ### 2) Create the root `.env` file
 
 ```bash
-touch .env
+cp .env.example .env
 ```
 
-See the **Environment Variables** section below for required values.
+Then fill in the required values (see Environment Variables below).
 
 ### 3) Install dependencies
 
@@ -145,34 +146,22 @@ npm run install:all
 ```
 
 Or manually:
-
 ```bash
 npm install
 npm --prefix backend install
 npm --prefix frontend install
 ```
 
-### 4) Install frontend UI dependencies
-
-The frontend uses the **Okta Odyssey** design system (built on MUI). Install these after the base install:
-
-```bash
-npm --prefix frontend install @okta/odyssey-react-mui @mui/material @emotion/react @emotion/styled
-```
-
-### 5) Start the app
+### 4) Start the app
 
 ```bash
 npm run dev
 ```
 
-This starts both frontend and backend concurrently. You should see:
-
 - Frontend: http://localhost:5173
 - Backend: http://localhost:3001
 
 Health check:
-
 ```bash
 curl -i http://localhost:3001/api/health
 ```
@@ -181,58 +170,38 @@ curl -i http://localhost:3001/api/health
 
 ## Environment Variables (Root `.env`)
 
-Both frontend and backend load from the single `.env` file at the repo root.
+Both the frontend and backend load from the single `.env` at the repo root.
 
-### Frontend variables (Vite)
+### Frontend (Vite)
 
 Vite only exposes variables prefixed with `VITE_` to the browser.
 
 ```ini
-# Frontend (Vite) config
 VITE_OKTA_ISSUER=https://{yourOktaDomain}/oauth2/{authServerId}
 VITE_OKTA_CLIENT_ID=0oaxxxxxxxxxxxxxxxxx
 VITE_OKTA_REDIRECT_URI=http://localhost:5173/login/callback
 VITE_OKTA_SCOPES=openid profile email
-VITE_API_PROXY_TARGET=http://localhost:3001   # optional, defaults to 3001
+VITE_API_PROXY_TARGET=http://localhost:3001
+VITE_OKTA_PARTITION=okta                        # or "oktapreview" for preview tenants
+VITE_OKTA_ORG_ID=00oxxxxxxxxxxxxxxxxx           # your org's ID
 ```
 
-### Backend variables (Express / Okta service app)
+### Backend (Express)
 
 ```ini
-# Backend (Express) config
 PORT=3001
 NODE_ENV=development
 
-# Okta org URL
 OKTA_ORG_URL=https://{yourOktaDomain}
-
-# JWT verification for incoming user access tokens
 OKTA_ISSUER=https://{yourOktaDomain}/oauth2/{authServerId}
 OKTA_CLIENT_ID=0oaxxxxxxxxxxxxxxxxx
 OKTA_AUDIENCE=api://default
 
-# Backend service app (client credentials via private key JWT)
 BFF_CLIENT_ID=0oaSERVICEAPPCLIENTIDxxxxxxxx
 BFF_PRIVATE_KEY={"kty":"RSA","kid":"...","use":"sig","alg":"RS256","n":"...","e":"AQAB","d":"..."}
 ```
 
-> `BFF_PRIVATE_KEY` must be valid JSON on a **single line**. If your key contains line breaks, convert it to a one-line JSON string before adding it to `.env`.
-
----
-
-## UI Design System
-
-The frontend uses the [Okta Odyssey](https://github.com/okta/odyssey) design system (`@okta/odyssey-react-mui`), which is built on top of MUI v5. The app is wrapped in `OdysseyProvider` in `main.jsx`, which applies Okta's official typography (Aeonik), color tokens, and component styles globally.
-
-Odyssey components in use:
-- `Button` (primary / secondary variants)
-- `TextField` (all text inputs)
-- `Dialog` / `DialogTitle` / `DialogContent` / `DialogActions` (modals)
-- `Chip` (status badges and label pills)
-- `CircularProgress` (loading indicators)
-- `Avatar` / `Menu` (profile dropdown)
-
-The app coexists with Tailwind CSS for layout utilities. Custom CSS variables in `index.css` are aligned to Odyssey's palette to ensure visual consistency.
+> `BFF_PRIVATE_KEY` must be valid JSON on a single line with no line breaks.
 
 ---
 
@@ -241,54 +210,66 @@ The app coexists with Tailwind CSS for layout utilities. Custom CSS variables in
 ### 1) Build the frontend
 
 ```bash
-npm run build
+npm --prefix frontend run build
 ```
 
 This produces `frontend/dist`.
 
-### 2) Start in production mode
+### 2) Start the backend in production mode
 
 ```bash
-npm run start:prod
+NODE_ENV=production npm --prefix backend start
 ```
 
-The backend will serve the React build from `frontend/dist` and expose API routes under `/api/...`.
+The backend serves the React build from `frontend/dist` and exposes all API routes under `/api/...`.
 
 ---
 
-## Scripts (from repo root)
+## Tailwind CSS Setup (Frontend)
 
-| Command | Description |
-|---|---|
-| `npm run install:all` | Install root, backend, and frontend dependencies |
-| `npm run dev` | Start frontend + backend concurrently |
-| `npm run build` | Build the frontend for production |
-| `npm run start:prod` | Start backend in production mode |
+From the repo root:
+```bash
+npm --prefix frontend install -D tailwindcss postcss autoprefixer
+cd frontend
+npx tailwindcss init -p
+cd ..
+```
+
+Ensure `frontend/src/index.css` contains:
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+If `npx tailwindcss init` fails with `could not determine executable to run`:
+```bash
+cd frontend
+npm exec tailwindcss init -p
+```
+
+---
+
+## Scripts
+
+From the repo root:
+
+```bash
+npm run install:all                       # install all dependencies
+npm run dev                               # start frontend + backend concurrently
+npm --prefix frontend run build           # build frontend for production
+npm --prefix backend start                # start backend
+```
 
 ---
 
 ## Common Troubleshooting
 
-### Backend won't start: "Missing required env var: OKTA_CLIENT_ID"
+**Backend won't start: "Missing required env var: OKTA_CLIENT_ID"**
+Add `OKTA_CLIENT_ID=0oaxxxxxxxxxxxxxxxxx` to your root `.env` and restart.
 
-Your `.env` at the repo root is missing a required variable. Add it and restart:
+**Frontend shows 404 for `/api/...`**
+Confirm the backend is running on port 3001 and that `VITE_API_PROXY_TARGET=http://localhost:3001` is set in `.env`.
 
-```bash
-npm run dev
-```
-
-### Frontend shows 404 for `/api/...`
-
-- Confirm the backend is running on port 3001
-- Confirm `VITE_API_PROXY_TARGET` is set (or defaults to `http://localhost:3001`)
-- Confirm you are running `npm run dev` from the **repo root**, not from inside `frontend/`
-
-### App loads but governance data is empty
-
-- Confirm the backend service app has all required API scopes (see Prerequisites)
-- Confirm `BFF_PRIVATE_KEY` is a valid single-line JSON string in `.env`
-- Check the backend terminal for specific error messages from Okta
-
-### "Each child in a list should have a unique key prop"
-
-React warning caused by non-unique keys in `.map()`. Should not block execution, but can cause unexpected UI behavior. Use stable Okta resource IDs as keys where possible.
+**"Each child in a list should have a unique key prop"**
+React warning only — does not block execution. Ensure list items use stable unique keys (Okta IDs are ideal).

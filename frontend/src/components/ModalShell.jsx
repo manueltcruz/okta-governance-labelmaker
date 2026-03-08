@@ -38,7 +38,7 @@ const ModalShell = ({
     <DialogTitle sx={{ pr: 6 }}>
       {title}
       {description && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+        <Typography variant="body2" color="text.secondary" style={{ marginTop: 4 }}>
           {description}
         </Typography>
       )}

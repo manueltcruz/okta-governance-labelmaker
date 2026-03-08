@@ -51,19 +51,16 @@ const GroupList = ({ groups, onSelectGroup, selectedGroupId }) => {
                       <div className="truncate text-sm font-semibold text-slate-900">
                         {group?.profile?.name || 'Unnamed group'}
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-slate-500">
-                        {group?.profile?.description || 'No description'}
+                      <div className="mt-0.5 truncate text-xs text-slate-400">
+                        {group.id}
                       </div>
+                      {group?.profile?.description && (
+                        <div className="mt-0.5 truncate text-xs text-slate-500">
+                          {group.profile.description}
+                        </div>
+                      )}
                     </div>
                   </div>
-
-                  <div className="hidden flex-none text-xs text-slate-400 sm:block">
-                    {group.id}
-                  </div>
-                </div>
-
-                <div className="mt-2 truncate text-xs text-slate-400 sm:hidden">
-                  {group.id}
                 </div>
               </button>
             </li>

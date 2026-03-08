@@ -4,12 +4,28 @@
 import React, { useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import ProfileDropdown from '../components/ProfileDropdown';
+import Dashboard from './Dashboard';
+import BulkAssign from './BulkAssign';
 import LabelManager from './LabelManager';
 import GroupAssignments from './GroupAssignments';
 import AppAssignments from './AppAssignments';
 import LabelSearch from './LabelSearch';
 
 // ── Icons ──────────────────────────────────────────────
+const IconBulk = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+    <path d="M15 5l4 4"/>
+  </svg>
+);
+
+const IconDashboard = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/>
+    <rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>
+  </svg>
+);
+
 const IconTag = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
@@ -44,15 +60,17 @@ const IconSearch = () => (
 
 // ── Nav config ─────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: 'labels',        label: 'Label Manager',  icon: <IconTag />,    description: 'Categories & values',  section: 'Manage' },
-  { id: 'groups',        label: 'Groups',          icon: <IconUsers />,  description: 'Directory groups',     section: 'Manage' },
-  { id: 'apps',          label: 'Applications',    icon: <IconApp />,    description: 'Okta applications',    section: 'Manage' },
-  { id: 'label-search',  label: 'Label Search',    icon: <IconSearch />, description: 'Find resources by label', section: 'Explore' },
+  { id: 'dashboard',    label: 'Dashboard',       icon: <IconDashboard />, description: 'Label coverage overview',  section: 'Overview' },
+  { id: 'labels',       label: 'Label Manager',   icon: <IconTag />,       description: 'Categories & values',      section: 'Manage' },
+  { id: 'groups',       label: 'Groups',          icon: <IconUsers />,     description: 'Directory groups',         section: 'Manage' },
+  { id: 'apps',         label: 'Applications',    icon: <IconApp />,       description: 'Okta applications',        section: 'Manage' },
+  { id: 'label-search', label: 'Label Search',    icon: <IconSearch />,    description: 'Find resources by label',  section: 'Explore' },
+  { id: 'bulk-assign',  label: 'Bulk Assign',     icon: <IconBulk />,      description: 'Assign labels at scale',   section: 'Tools' },
 ];
 
 // ── Sidebar ────────────────────────────────────────────
 const Sidebar = ({ activePage, onNavigate, userName, onLogout }) => {
-  const sections = ['Manage', 'Explore'];
+  const sections = ['Overview', 'Manage', 'Explore', 'Tools'];
   return (
     <aside className="flex h-screen w-64 flex-none flex-col border-r" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
       {/* Logo */}
@@ -86,7 +104,7 @@ const Sidebar = ({ activePage, onNavigate, userName, onLogout }) => {
                 >
                   <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md" style={{
                     background: activePage === item.id ? 'var(--color-accent-subtle)' : 'var(--color-bg)',
-                    border: `1px solid ${activePage === item.id ? '#c7d7fe' : 'var(--color-border)'}`,
+                    border: `1px solid ${activePage === item.id ? 'var(--color-accent-border)' : 'var(--color-border)'}`,
                     color: activePage === item.id ? 'var(--color-accent)' : 'var(--color-text-muted)',
                   }}>
                     {item.icon}
@@ -118,7 +136,7 @@ const PageHeader = ({ page }) => {
     <div className="mb-6 flex items-center gap-3">
       <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{
         background: 'var(--color-accent-subtle)',
-        border: '1px solid #c7d7fe',
+        border: '1px solid var(--color-accent-border)',
         color: 'var(--color-accent)',
       }}>
         {item.icon}
@@ -136,7 +154,7 @@ const PageHeader = ({ page }) => {
 // ── Main Layout ────────────────────────────────────────
 const MainLayout = () => {
   const { authState, oktaAuth } = useOktaAuth();
-  const [activePage, setActivePage] = useState('labels');
+  const [activePage, setActivePage] = useState('dashboard');
 
   if (!authState) {
     return (
@@ -162,10 +180,12 @@ const MainLayout = () => {
       <div className="flex-1 overflow-y-auto">
         <div className="page">
           <PageHeader page={activePage} />
+          {activePage === 'dashboard'    && <Dashboard />}
           {activePage === 'labels'       && <LabelManager />}
           {activePage === 'groups'       && <GroupAssignments />}
           {activePage === 'apps'         && <AppAssignments />}
           {activePage === 'label-search' && <LabelSearch />}
+          {activePage === 'bulk-assign'  && <BulkAssign />}
         </div>
       </div>
     </div>

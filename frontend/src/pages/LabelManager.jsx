@@ -112,14 +112,12 @@ const PlusIcon = ({ className = 'h-4 w-4' }) => (
 );
 
 const TrashIcon = ({ className = 'h-4 w-4' }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-    <path
-      d="M9 3h6m-8 4h10m-9 0 1 14h6l1-14M10 11v6m4-6v6"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+    <path d="M10 11v6m4-6v6"/>
+    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
   </svg>
 );
 
@@ -145,6 +143,14 @@ export default function LabelManager() {
   const [editingValueId, setEditingValueId] = useState('');
   const [editValueName, setEditValueName] = useState('');
   const [editValueColorName, setEditValueColorName] = useState('gray');
+
+  // Add value inline form
+  const [addingValueToCatId, setAddingValueToCatId] = useState('');
+  const [newValueName, setNewValueName] = useState('');
+  const [newValueColorName, setNewValueColorName] = useState('gray');
+
+  // Delete value
+  const [deleteValueError, setDeleteValueError] = useState('');
 
   const accessToken = useMemo(() => {
     if (!authState?.isAuthenticated) return '';
@@ -331,6 +337,54 @@ export default function LabelManager() {
     }
   }
 
+  async function handleAddValue(catId) {
+    setError('');
+    setBusy(true);
+    try {
+      if (!newValueName.trim()) throw new Error('Value name is required.');
+      await apiFetch(`/api/governance-labels/${encodeURIComponent(catId)}/values`, {
+        method: 'POST',
+        body: { name: newValueName.trim(), color: normalizeColorName(newValueColorName) },
+      });
+      setAddingValueToCatId('');
+      setNewValueName('');
+      setNewValueColorName('gray');
+      await refreshLabels();
+    } catch (e) {
+      setError(e?.message || 'Failed to add value.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteValue(catId, valueId, valueName) {
+    const ok = window.confirm(`Delete the value "${valueName}"? This cannot be undone.`);
+    if (!ok) return;
+    setError('');
+    setDeleteValueError('');
+    setBusy(true);
+    try {
+      await apiFetch(
+        `/api/governance-labels/${encodeURIComponent(catId)}/values/${encodeURIComponent(valueId)}`,
+        { method: 'DELETE' }
+      );
+      if (selectedValueId === valueId) {
+        setSelectedValueId('');
+        setEditingValueId('');
+      }
+      await refreshLabels();
+    } catch (e) {
+      // Detect "still assigned" — backend returns 409 with a clean message
+      if (e?.message?.includes('409')) {
+        setDeleteValueError(`"${valueName}" cannot be deleted because it is still assigned to one or more resources. Remove all assignments first, then try again.`);
+      } else {
+        setError(e?.message || 'Failed to delete value.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveEditValue() {
     setError('');
     setBusy(true);
@@ -405,6 +459,21 @@ export default function LabelManager() {
         {error ? (
           <div className="error">
             <strong>Error:</strong> {error}
+          </div>
+        ) : null}
+
+        {deleteValueError ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
+            <svg className="mt-0.5 flex-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <div>
+              <strong>Cannot delete value</strong><br/>
+              {deleteValueError}
+            </div>
+            <button type="button" onClick={() => setDeleteValueError('')}
+              className="ml-auto flex-none text-amber-500 hover:text-amber-700 font-bold text-base leading-none">×</button>
           </div>
         ) : null}
 
@@ -531,14 +600,28 @@ export default function LabelManager() {
                     </button>
 
                     {isSelectedCategory ? (
-                      <IconButton
-                        title="Delete category"
-                        onClick={() => handleDeleteCategory(cat.id)}
-                        disabled={busy || !cat.id}
-                        className="text-rose-700 hover:bg-rose-50"
-                      >
-                        <TrashIcon />
-                      </IconButton>
+                      <div className="flex items-center gap-1">
+                        <IconButton
+                          title="Add value"
+                          onClick={() => {
+                            setAddingValueToCatId(addingValueToCatId === cat.id ? '' : cat.id);
+                            setNewValueName('');
+                            setNewValueColorName('gray');
+                          }}
+                          disabled={busy}
+                          className={addingValueToCatId === cat.id ? 'bg-slate-50' : ''}
+                        >
+                          <PlusIcon />
+                        </IconButton>
+                        <IconButton
+                          title="Delete category"
+                          onClick={() => handleDeleteCategory(cat.id)}
+                          disabled={busy || !cat.id}
+                          className="text-rose-700 hover:bg-rose-50"
+                        >
+                          <TrashIcon />
+                        </IconButton>
+                      </div>
                     ) : null}
                   </div>
 
@@ -556,17 +639,18 @@ export default function LabelManager() {
                             const isSelectedValue = selectedValueId === v.id;
 
                             return (
-                              <li key={v.key}>
+                              <li key={v.key} className="flex items-stretch gap-1.5">
                                 <button
                                   type="button"
                                   onClick={() => {
                                     if (!v.id) return;
                                     setSelectedValueId(v.id);
                                     setEditingValueId('');
+                                    setDeleteValueError('');
                                   }}
                                   disabled={!v.id}
                                   className={[
-                                    'flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition',
+                                    'flex flex-1 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition',
                                     'focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-200',
                                     !v.id
                                       ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
@@ -598,10 +682,70 @@ export default function LabelManager() {
                                     <span className="text-xs text-slate-400">Pick</span>
                                   )}
                                 </button>
+
+                                <IconButton
+                                  title={`Delete "${v.name}"`}
+                                  onClick={() => handleDeleteValue(cat.id, v.id, v.name)}
+                                  disabled={busy || !v.id}
+                                  className="text-rose-700 hover:bg-rose-50 flex-none self-stretch h-auto"
+                                >
+                                  <TrashIcon />
+                                </IconButton>
                               </li>
                             );
                           })}
                         </ul>
+                      )}
+
+                      {/* ── Add value inline form ── */}
+                      {addingValueToCatId === cat.id && (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 mt-2">
+                          <div className="text-xs font-semibold text-slate-700">New value</div>
+                          <TextField
+                            label="Value name"
+                            value={newValueName}
+                            onChange={(e) => setNewValueName(e.target.value)}
+                            placeholder="e.g., High"
+                            isDisabled={busy}
+                            isFullWidth
+                          />
+                          <div>
+                            <div className="label mb-1">Color</div>
+                            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                              {COLOR_OPTIONS.map((c) => {
+                                const selected = normalizeColorName(newValueColorName) === c.name;
+                                return (
+                                  <button
+                                    key={c.name}
+                                    type="button"
+                                    onClick={() => setNewValueColorName(c.name)}
+                                    disabled={busy}
+                                    className={[
+                                      'flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-xs',
+                                      selected
+                                        ? 'border-slate-400 bg-white'
+                                        : 'border-slate-200 bg-white hover:bg-slate-100',
+                                    ].join(' ')}
+                                  >
+                                    <span className="capitalize text-slate-800">{c.name}</span>
+                                    <span className="h-3 w-3 rounded-full border border-slate-200 flex-none"
+                                      style={{ backgroundColor: c.hex }} />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1">
+                            <Button variant="secondary" isDisabled={busy}
+                              onClick={() => { setAddingValueToCatId(''); setNewValueName(''); setNewValueColorName('gray'); }}>
+                              Cancel
+                            </Button>
+                            <Button variant="primary" isDisabled={busy || !newValueName.trim()}
+                              onClick={() => handleAddValue(cat.id)}>
+                              {busy ? 'Adding…' : 'Add value'}
+                            </Button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ) : null}
