@@ -5,6 +5,28 @@ import { isColorDark } from '../utils/colorUtils';
 import Card from './ui/Card';
 import IconButton from './ui/IconButton';
 
+const IconPlus = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M12 5v14M5 12h14"/>
+  </svg>
+);
+
+const IconPencil = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+    <path d="M15 5l4 4"/>
+  </svg>
+);
+
+const IconTrash = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+    <path d="M10 11v6m4-6v6"/>
+    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+  </svg>
+);
+
 const LabelGroups = ({
   data,
   onEditGroup,
@@ -48,7 +70,7 @@ const LabelGroups = ({
                       variant="primary"
                       disabled={isBusy}
                     >
-                      +
+                      <IconPlus />
                     </IconButton>
                   ) : null}
 
@@ -59,19 +81,20 @@ const LabelGroups = ({
                       variant="primary"
                       disabled={isBusy}
                     >
-                      ✎
+                      <IconPencil />
                     </IconButton>
                   ) : null}
 
                   {onDeleteGroup ? (
-                    <IconButton
+                    <button
+                      type="button"
                       title="Delete group"
                       onClick={() => onDeleteGroup(labelGroup.labelId)}
-                      variant="danger"
                       disabled={isBusy}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      🗑
-                    </IconButton>
+                      <IconTrash />
+                    </button>
                   ) : null}
                 </div>
               </div>
@@ -113,21 +136,22 @@ const LabelGroups = ({
                           variant="primary"
                           disabled={isBusy}
                         >
-                          ✎
+                          <IconPencil />
                         </IconButton>
                       ) : null}
 
                       {onDeleteValue ? (
-                        <IconButton
+                        <button
+                          type="button"
                           title="Unassign value"
                           onClick={() =>
                             onDeleteValue(labelGroup.labelId, value.labelValueId)
                           }
-                          variant="danger"
                           disabled={isBusy}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          🗑
-                        </IconButton>
+                          <IconTrash />
+                        </button>
                       ) : null}
                     </div>
                   </div>

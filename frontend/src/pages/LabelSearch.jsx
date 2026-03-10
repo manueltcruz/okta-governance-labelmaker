@@ -162,16 +162,16 @@ const ResultRow = ({ resource, searchedValueName, onUnassign, unassignStatus }) 
                 width: 30, height: 30, borderRadius: 7, flexShrink: 0,
                 border: '1px solid var(--color-border)',
                 background: 'var(--color-surface)',
-                color: 'var(--color-danger, #dc2626)',
+                color: 'var(--color-text-secondary)',
                 cursor: isRunning ? 'not-allowed' : 'pointer',
                 opacity: isRunning ? 0.6 : 1,
                 transition: 'all 0.15s',
               }}
-              onMouseEnter={e => { if (!isRunning) { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fecaca'; }}}
+              onMouseEnter={e => { if (!isRunning) { e.currentTarget.style.background = 'var(--color-bg)'; e.currentTarget.style.borderColor = 'var(--color-text-muted)'; }}}
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-surface)'; e.currentTarget.style.borderColor = 'var(--color-border)'; }}
             >
               {isRunning
-                ? <CircularProgress size={12} style={{ color: 'var(--color-danger, #dc2626)' }} />
+                ? <CircularProgress size={12} style={{ color: 'var(--color-text-secondary)' }} />
                 : <IconTrash />
               }
             </button>
