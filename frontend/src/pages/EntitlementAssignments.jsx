@@ -5,13 +5,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import AssignLabelForm from '../components/AssignLabelForm';
 import LabelGroups from '../components/LabelGroups';
-
-const OKTA_PARTITION = import.meta.env.VITE_OKTA_PARTITION || 'oktapreview';
-const OKTA_ORG_ID    = import.meta.env.VITE_OKTA_ORG_ID    || '00ou52nw1BecRJ5jB1d6';
-
-function buildEntitlementOrn(appId, entitlementId) {
-  return `orn:${OKTA_PARTITION}:governance:${OKTA_ORG_ID}:entitlements:${entitlementId}`;
-}
+import { useApiClient } from '../hooks/useApiClient';
+import { useConfirm } from '../hooks/useConfirm';
+import { useDataContext } from '../context/DataContext';
+import { buildEntitlementOrn } from '../utils/orn';
 
 // ── Shared list item ───────────────────────────────────
 const ListItem = ({ primary, secondary, badge, badgeVariant = 'pill', isSelected, onClick, logoUrl }) => {
@@ -69,7 +66,7 @@ const Breadcrumb = ({ app, entitlement, onClickApp }) => (
 const EntitlementDetail = ({ app, entitlement, assignments, isLoading, error, allLabels, onAssign, onUnassign, isBusy, onBack }) => {
   const [showAssignForm, setShowAssignForm] = useState(false);
 
-  const orn  = useMemo(() => buildEntitlementOrn(app?.id, entitlement?.id), [app?.id, entitlement?.id]);
+  const orn  = useMemo(() => buildEntitlementOrn(entitlement?.id), [entitlement?.id]);
   const name = entitlement?.displayName || entitlement?.name || 'Unnamed entitlement';
   const hasAssignments = Array.isArray(assignments) && assignments.length > 0;
 
@@ -204,7 +201,10 @@ const AppEntitlements = ({ app, entitlements, isLoading, error, onSelectEntitlem
 
 // ── Main page ──────────────────────────────────────────
 const EntitlementAssignments = () => {
-  const { authState, oktaAuth } = useOktaAuth();
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
+  const { confirm, confirmDialog } = useConfirm();
+  const { invalidate } = useDataContext();
 
   // App list
   const [apps, setApps]               = useState(null);
@@ -231,93 +231,60 @@ const EntitlementAssignments = () => {
   // Load entitlement-enabled apps + all labels on mount
   useEffect(() => {
     if (!authState?.isAuthenticated) return;
-    const load = async () => {
-      setLoadingApps(true);
-      setAppsError(null);
-      try {
-        const token = oktaAuth.getAccessToken();
-        const [appsRes, labelsRes] = await Promise.all([
-          fetch('/api/apps/entitlement-enabled', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/governance-labels',         { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
-        if (!appsRes.ok)   throw new Error(`Failed to fetch apps: ${await appsRes.text()}`);
-        if (!labelsRes.ok) throw new Error(`Failed to fetch labels: ${await labelsRes.text()}`);
-        setApps(await appsRes.json());
-        const labelsData = await labelsRes.json();
+    setLoadingApps(true); setAppsError(null);
+    Promise.all([
+      apiFetch('/api/apps/entitlement-enabled'),
+      apiFetch('/api/governance-labels'),
+    ])
+      .then(([appsData, labelsData]) => {
+        setApps(appsData);
         setAllLabels(labelsData?.data || []);
-      } catch (err) {
-        setAppsError(err?.message || 'Failed to load apps.');
-      } finally {
-        setLoadingApps(false);
-      }
-    };
-    load();
-  }, [authState, oktaAuth]);
+      })
+      .catch(err => setAppsError(err?.message || 'Failed to load apps.'))
+      .finally(() => setLoadingApps(false));
+  }, [authState]);
 
   // Fetch entitlements when an app is selected
   const handleSelectApp = async (app) => {
     setSelectedApp(app);
     setSelectedEnt(null);
     setEntitlements(null);
-    setLoadingEnts(true);
-    setEntsError(null);
-    try {
-      const token = oktaAuth.getAccessToken();
-      const res   = await fetch(`/api/apps/${app.id}/entitlements`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(`Failed to fetch entitlements: ${await res.text()}`);
-      setEntitlements(await res.json());
-    } catch (err) {
-      setEntsError(err?.message || 'Failed to load entitlements.');
-    } finally {
-      setLoadingEnts(false);
-    }
+    setLoadingEnts(true); setEntsError(null);
+    apiFetch(`/api/apps/${app.id}/entitlements`)
+      .then(setEntitlements)
+      .catch(err => setEntsError(err?.message || 'Failed to load entitlements.'))
+      .finally(() => setLoadingEnts(false));
   };
 
   // Fetch label assignments when an entitlement is selected
   const handleSelectEnt = async (ent) => {
     setSelectedEnt(ent);
     setAssignments(null);
-    setLoadingAssign(true);
-    setAssignError(null);
-    try {
-      const token = oktaAuth.getAccessToken();
-      const orn   = buildEntitlementOrn(selectedApp?.id, ent.id);
-      const res   = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(`Failed to fetch assigned labels: ${await res.text()}`);
-      setAssignments(await res.json());
-    } catch (err) {
-      setAssignError(err?.message || 'Failed to load assigned labels.');
-    } finally {
-      setLoadingAssign(false);
-    }
+    setLoadingAssign(true); setAssignError(null);
+    const orn = buildEntitlementOrn(ent.id);
+    apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`)
+      .then(setAssignments)
+      .catch(err => setAssignError(err?.message || 'Failed to load assigned labels.'))
+      .finally(() => setLoadingAssign(false));
   };
 
   const handleAssign = async (orn, labelValueId) => {
     setIsBusy(true); setAssignError(null);
     try {
-      const token = oktaAuth.getAccessToken();
-      const res   = await fetch('/api/assignments', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn, labelValueId }),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      await apiFetch('/api/assignments', { method: 'POST', body: { orn, labelValueId } });
+      invalidate();
       if (selectedEnt) handleSelectEnt(selectedEnt);
     } catch (err) { setAssignError(err?.message || 'Failed to assign label.'); }
     finally { setIsBusy(false); }
   };
 
   const handleUnassign = async (orn, labelValueId) => {
-    if (!window.confirm('Unassign this label from the entitlement?')) return;
+    const ok = await confirm('Unassign label', 'Remove this label from the entitlement?', 'Unassign');
+    if (!ok) return;
     setIsBusy(true); setAssignError(null);
     try {
-      const token = oktaAuth.getAccessToken();
-      const res   = await fetch('/api/assignments', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn, labelValueId }),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      await apiFetch('/api/assignments', { method: 'DELETE', body: { orn, labelValueId } });
+      invalidate();
       if (selectedEnt) handleSelectEnt(selectedEnt);
     } catch (err) { setAssignError(err?.message || 'Failed to unassign label.'); }
     finally { setIsBusy(false); }
@@ -334,6 +301,7 @@ const EntitlementAssignments = () => {
   }
 
   return (
+    <>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }} className="lg:grid-cols-12">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
 
@@ -412,6 +380,8 @@ const EntitlementAssignments = () => {
 
       </div>
     </div>
+    {confirmDialog}
+    </>
   );
 };
 

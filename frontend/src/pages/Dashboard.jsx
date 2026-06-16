@@ -4,14 +4,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import { CircularProgress, Chip } from '@mui/material';
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function extractArray(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (payload && Array.isArray(payload.data)) return payload.data;
-  return [];
-}
+import { useApiClient } from '../hooks/useApiClient';
+import { useDataContext } from '../context/DataContext';
+import { extractArray } from '../utils/labels';
 
 // ── Stat Card ──────────────────────────────────────────────────────────────
 
@@ -64,41 +59,31 @@ const BAR_COLORS = [
 // ── Dashboard ──────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { oktaAuth, authState } = useOktaAuth();
-
-  const accessToken = useMemo(() => {
-    if (!authState?.isAuthenticated) return '';
-    return oktaAuth.getAccessToken() || '';
-  }, [oktaAuth, authState]);
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
+  const { version } = useDataContext();
 
   // Raw data
-  const [labels,    setLabels]    = useState([]);
-  const [groups,    setGroups]    = useState([]);
-  const [apps,      setApps]      = useState([]);
-  const [eeApps,    setEeApps]    = useState([]);
+  const [labels,      setLabels]      = useState([]);
+  const [groups,      setGroups]      = useState([]);
+  const [apps,        setApps]        = useState([]);
+  const [eeApps,      setEeApps]      = useState([]);
+  const [labeledOrns, setLabeledOrns] = useState(null);
 
   // Per-label-value resource counts: { [labelValueId]: number }
   const [valueCounts, setValueCounts] = useState({});
 
   // Loading / error states
-  const [loadingBase,   setLoadingBase]   = useState(true);
-  const [loadingCounts, setLoadingCounts] = useState(false);
-  const [error,         setError]         = useState('');
-
-  // ── Fetch ────────────────────────────────────────────────────────────────
-
-  async function apiFetch(url) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json();
-  }
+  const [loadingBase,     setLoadingBase]     = useState(true);
+  const [loadingCounts,   setLoadingCounts]   = useState(false);
+  const [loadingCoverage, setLoadingCoverage] = useState(true);
+  const [error,           setError]           = useState('');
 
   useEffect(() => {
-    if (!authState?.isAuthenticated || !accessToken) return;
+    if (!authState?.isAuthenticated) return;
 
     setLoadingBase(true);
+    setLoadingCoverage(true);
     setError('');
 
     Promise.all([
@@ -106,20 +91,22 @@ export default function Dashboard() {
       apiFetch('/api/groups'),
       apiFetch('/api/apps'),
       apiFetch('/api/apps/entitlement-enabled'),
+      apiFetch('/api/coverage').catch(() => null),
     ])
-      .then(([labelsData, groupsData, appsData, eeData]) => {
+      .then(([labelsData, groupsData, appsData, eeData, coverageData]) => {
         setLabels(extractArray(labelsData));
         setGroups(extractArray(groupsData));
         setApps(extractArray(appsData));
         setEeApps(extractArray(eeData));
+        setLabeledOrns(coverageData?.labeledOrns ?? []);
       })
       .catch(e => setError(e.message))
-      .finally(() => setLoadingBase(false));
-  }, [authState, accessToken]);
+      .finally(() => { setLoadingBase(false); setLoadingCoverage(false); });
+  }, [authState, version]);
 
   // Once labels load, fetch resource counts per label value (capped at 20 values)
   useEffect(() => {
-    if (!labels.length || !accessToken) return;
+    if (!labels.length) return;
 
     const allValues = labels.flatMap(cat =>
       (cat.values || []).map(v => ({
@@ -144,7 +131,7 @@ export default function Dashboard() {
       results.forEach(r => { map[r.id] = r.count; });
       setValueCounts(map);
     }).finally(() => setLoadingCounts(false));
-  }, [labels, accessToken]);
+  }, [labels]);
 
   // ── Derived stats ────────────────────────────────────────────────────────
 
@@ -184,9 +171,17 @@ export default function Dashboard() {
 
   const maxCategoryTotal = Math.max(...categoryStats.map(c => c.total), 1);
 
-  // Total labeled resources (unique-ish — sum across all values, may double-count
-  // resources with multiple labels, but good enough for a coverage indicator)
-  const totalLabeledResources = Object.values(valueCounts).reduce((n, c) => n + c, 0);
+  // Distinct labeled resource count — accurate because labeledOrns is a deduplicated set
+  const totalLabeledResources = labeledOrns ? labeledOrns.length : null;
+
+  // Unlabeled groups and apps derived from coverage data
+  const { unlabeledGroups, unlabeledApps } = useMemo(() => {
+    if (!labeledOrns) return { unlabeledGroups: [], unlabeledApps: [] };
+    const labeledIds = new Set(labeledOrns.map(orn => orn.split(':').at(-1)));
+    const unlabeledGroups = groups.filter(g => !labeledIds.has(g.id));
+    const unlabeledApps   = apps.filter(a => !labeledIds.has(a.id));
+    return { unlabeledGroups, unlabeledApps };
+  }, [labeledOrns, groups, apps]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -211,19 +206,19 @@ export default function Dashboard() {
         <StatCard
           label="Groups"
           value={totalGroups}
-          sub="Universal Directory"
+          sub={loadingCoverage ? 'loading coverage…' : `${totalGroups - unlabeledGroups.length} labeled · ${unlabeledGroups.length} unlabeled`}
           loading={loadingBase}
         />
         <StatCard
           label="Applications"
           value={totalApps}
-          sub={`${totalEeApps} entitlement-enabled`}
+          sub={loadingCoverage ? 'loading coverage…' : `${totalApps - unlabeledApps.length} labeled · ${unlabeledApps.length} unlabeled`}
           loading={loadingBase}
         />
         <StatCard
           label="Labeled Resources"
-          value={loadingCounts ? '…' : totalLabeledResources}
-          sub="assignments across all values"
+          value={loadingCoverage ? '…' : totalLabeledResources ?? '—'}
+          sub="distinct resources with at least one label"
           accent
           loading={loadingBase}
         />
@@ -312,6 +307,77 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* ── Unlabeled resources ── */}
+      {!loadingBase && !loadingCoverage && (unlabeledGroups.length > 0 || unlabeledApps.length > 0) && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
+          {unlabeledGroups.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Unlabeled Groups</div>
+                  <div className="help">{unlabeledGroups.length} group{unlabeledGroups.length !== 1 ? 's' : ''} with no governance labels</div>
+                </div>
+                <Chip label={unlabeledGroups.length} size="small" color="warning" />
+              </div>
+              <ul className="divide-y" style={{ borderColor: 'var(--color-border-subtle)' }}>
+                {unlabeledGroups.slice(0, 10).map(g => (
+                  <li key={g.id} className="px-5 py-3">
+                    <div className="text-sm font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>
+                      {g.profile?.name || g.id}
+                    </div>
+                    {g.profile?.description && (
+                      <div className="text-xs truncate mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                        {g.profile.description}
+                      </div>
+                    )}
+                  </li>
+                ))}
+                {unlabeledGroups.length > 10 && (
+                  <li className="px-5 py-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    + {unlabeledGroups.length - 10} more — visit the Groups page to assign labels
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {unlabeledApps.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Unlabeled Applications</div>
+                  <div className="help">{unlabeledApps.length} app{unlabeledApps.length !== 1 ? 's' : ''} with no governance labels</div>
+                </div>
+                <Chip label={unlabeledApps.length} size="small" color="warning" />
+              </div>
+              <ul className="divide-y" style={{ borderColor: 'var(--color-border-subtle)' }}>
+                {unlabeledApps.slice(0, 10).map(a => (
+                  <li key={a.id} className="flex items-center gap-3 px-5 py-3">
+                    {a._links?.logo?.[0]?.href
+                      ? <img src={a._links.logo[0].href} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'contain', border: '1px solid var(--color-border)', background: '#fff', flexShrink: 0 }} />
+                      : <span className="avatar" style={{ width: 24, height: 24, fontSize: 9, borderRadius: 4, flexShrink: 0 }}>{(a.label || a.name || '?').slice(0, 2).toUpperCase()}</span>
+                    }
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>
+                        {a.label || a.name || a.id}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+                {unlabeledApps.length > 10 && (
+                  <li className="px-5 py-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    + {unlabeledApps.length - 10} more — visit the Applications page to assign labels
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+        </div>
+      )}
+
     </div>
   );
 }

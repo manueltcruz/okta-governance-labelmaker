@@ -4,20 +4,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import { CircularProgress } from '@mui/material';
-
-const OKTA_PARTITION = import.meta.env.VITE_OKTA_PARTITION || 'oktapreview';
-const OKTA_ORG_ID    = import.meta.env.VITE_OKTA_ORG_ID    || '00ou52nw1BecRJ5jB1d6';
-
-function buildGroupOrn(id) {
-  return `orn:${OKTA_PARTITION}:directory:${OKTA_ORG_ID}:groups:${id}`;
-}
-function buildAppOrn(id, signOnMode) {
-  const t = String(signOnMode || 'generic').toLowerCase();
-  return `orn:${OKTA_PARTITION}:idp:${OKTA_ORG_ID}:apps:${t}:${id}`;
-}
-function buildEntitlementOrn(id) {
-  return `orn:${OKTA_PARTITION}:governance:${OKTA_ORG_ID}:entitlements:${id}`;
-}
+import { useApiClient } from '../hooks/useApiClient';
+import { buildGroupOrn, buildAppOrn, buildEntitlementOrn } from '../utils/orn';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
 
@@ -151,7 +139,7 @@ const ResultBanner = ({ results, onReset }) => {
 
 // ── Entitlement tree (Step 3 for entitlements) ────────────────────────────
 
-const EntitlementTree = ({ selectedIds, onToggle, onToggleAll, getToken, itemStatus }) => {
+const EntitlementTree = ({ selectedIds, onToggle, onToggleAll, apiFetch, itemStatus }) => {
   const [apps,        setApps]        = useState([]);
   const [loadingApps, setLoadingApps] = useState(true);
   const [appsError,   setAppsError]   = useState('');
@@ -167,8 +155,7 @@ const EntitlementTree = ({ selectedIds, onToggle, onToggleAll, getToken, itemSta
 
   useEffect(() => {
     setLoadingApps(true);
-    fetch('/api/apps/entitlement-enabled', { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => r.json())
+    apiFetch('/api/apps/entitlement-enabled')
       .then(d => setApps(Array.isArray(d) ? d : []))
       .catch(e => setAppsError(e.message))
       .finally(() => setLoadingApps(false));
@@ -184,31 +171,21 @@ const EntitlementTree = ({ selectedIds, onToggle, onToggleAll, getToken, itemSta
     setOpenCats(new Set());
     if (catData[app.id]) return;
     setCatData(prev => ({ ...prev, [app.id]: { categories: null, loading: true, error: '' } }));
-    try {
-      const r = await fetch(`/api/apps/${app.id}/entitlements`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      if (!r.ok) throw new Error(await r.text());
-      const cats = await r.json();
-      setCatData(prev => ({ ...prev, [app.id]: { categories: cats, loading: false, error: '' } }));
-    } catch (e) {
-      setCatData(prev => ({ ...prev, [app.id]: { categories: null, loading: false, error: e.message } }));
-    }
-  }, [catData, getToken]);
+    apiFetch(`/api/apps/${app.id}/entitlements`)
+      .then(cats => setCatData(prev => ({ ...prev, [app.id]: { categories: cats, loading: false, error: '' } })))
+      .catch(e => setCatData(prev => ({ ...prev, [app.id]: { categories: null, loading: false, error: e.message } })));
+  }, [catData, apiFetch]);
 
   const toggleCat = useCallback(async (cat) => {
     const isOpening = !openCats.has(cat.id);
     setOpenCats(prev => { const n = new Set(prev); isOpening ? n.add(cat.id) : n.delete(cat.id); return n; });
     if (isOpening && !valData[cat.id]) {
       setValData(prev => ({ ...prev, [cat.id]: { values: null, loading: true, error: '' } }));
-      try {
-        const r = await fetch(`/api/entitlements/${cat.id}/values`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (!r.ok) throw new Error(await r.text());
-        const vals = await r.json();
-        setValData(prev => ({ ...prev, [cat.id]: { values: vals, loading: false, error: '' } }));
-      } catch (e) {
-        setValData(prev => ({ ...prev, [cat.id]: { values: null, loading: false, error: e.message } }));
-      }
+      apiFetch(`/api/entitlements/${cat.id}/values`)
+        .then(vals => setValData(prev => ({ ...prev, [cat.id]: { values: vals, loading: false, error: '' } })))
+        .catch(e => setValData(prev => ({ ...prev, [cat.id]: { values: null, loading: false, error: e.message } })));
     }
-  }, [openCats, valData, getToken]);
+  }, [openCats, valData, apiFetch]);
 
   const toggleCatAll = useCallback((cat) => {
     const vd = valData[cat.id];
@@ -350,8 +327,8 @@ const RESOURCE_TYPES = [
 ];
 
 export default function BulkAssign() {
-  const { authState, oktaAuth } = useOktaAuth();
-  const getToken = useCallback(() => oktaAuth.getAccessToken(), [oktaAuth]);
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
 
   const [resourceType,    setResourceType]    = useState('groups');
   const [allLabels,       setAllLabels]        = useState([]);
@@ -372,8 +349,7 @@ export default function BulkAssign() {
 
   useEffect(() => {
     if (!authState?.isAuthenticated) return;
-    fetch('/api/governance-labels', { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => r.json())
+    apiFetch('/api/governance-labels')
       .then(d => setAllLabels(d?.data || d || []))
       .catch(e => setLabelsError(e.message))
       .finally(() => setLoadingLabels(false));
@@ -381,12 +357,10 @@ export default function BulkAssign() {
 
   useEffect(() => {
     if (step !== 3 || resourceType === 'entitlements' || !authState?.isAuthenticated) return;
-    // Only fetch if we don't already have resources for this type
     if (resources.length > 0) return;
     setLoadingRes(true); setResourcesError(''); setSelectedIds(new Set());
     const url = resourceType === 'groups' ? '/api/groups' : '/api/apps/entitlement-enabled';
-    fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => r.json())
+    apiFetch(url)
       .then(d => setResources(Array.isArray(d) ? d : d?.data || []))
       .catch(e => setResourcesError(e.message))
       .finally(() => setLoadingRes(false));
@@ -437,23 +411,31 @@ export default function BulkAssign() {
           label: resourceType === 'groups' ? (r?.profile?.name || r.id) : (r?.label || r?.name || r.id),
         }));
 
-    const out = [];
-    for (const t of targets) {
-      setItemStatus(prev => ({ ...prev, [t.id]: 'running' }));
-      try {
-        const r = await fetch('/api/assignments', {
+    setItemStatus(Object.fromEntries(targets.map(t => [t.id, 'running'])));
+
+    const settled = await Promise.allSettled(
+      targets.map(t =>
+        apiFetch('/api/assignments', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orn: t.orn, labelValueId: selectedValueId }),
-        });
-        if (!r.ok && r.status !== 409) throw new Error(await r.text());
-        setItemStatus(prev => ({ ...prev, [t.id]: 'ok' }));
+          body: { orn: t.orn, labelValueId: selectedValueId },
+        })
+      )
+    );
+
+    const out = [];
+    const nextStatus = {};
+    settled.forEach((result, i) => {
+      const t = targets[i];
+      if (result.status === 'fulfilled') {
+        nextStatus[t.id] = 'ok';
         out.push({ id: t.id, label: t.label, status: 'ok' });
-      } catch (e) {
-        setItemStatus(prev => ({ ...prev, [t.id]: 'error' }));
-        out.push({ id: t.id, label: t.label, status: 'error', error: e.message });
+      } else {
+        nextStatus[t.id] = 'error';
+        out.push({ id: t.id, label: t.label, status: 'error', error: result.reason?.message });
       }
-    }
+    });
+
+    setItemStatus(nextStatus);
     setResults(out);
     setRunning(false);
   };
@@ -642,7 +624,7 @@ export default function BulkAssign() {
               selectedIds={selectedIds}
               onToggle={toggleEntitlement}
               onToggleAll={toggleEntitlementAll}
-              getToken={getToken}
+              apiFetch={apiFetch}
               itemStatus={itemStatus}
             />
             {selectedIds.size > 0 && (

@@ -109,7 +109,15 @@ async function createClientAssertion() {
   return assertion;
 }
 
+// { scope -> { token: string, expiresAt: number } }
+const tokenCache = new Map();
+
 async function getServiceToken(scope) {
+  const cached = tokenCache.get(scope);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.token;
+  }
+
   const clientAssertion = await createClientAssertion();
   const tokenUrl = `${process.env.OKTA_ORG_URL}/oauth2/v1/token`;
 
@@ -123,7 +131,13 @@ async function getServiceToken(scope) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
 
-  return tokenResponse.data.access_token;
+  const { access_token, expires_in = 3600 } = tokenResponse.data;
+  tokenCache.set(scope, {
+    token: access_token,
+    expiresAt: Date.now() + (expires_in - 30) * 1000,
+  });
+
+  return access_token;
 }
 
 /* ------------------------------------------------------------------
@@ -350,19 +364,61 @@ app.delete(
 );
 
 /**
+ * Coverage — returns the set of distinct ORNs that have at least one label assigned.
+ * Used by the Dashboard to compute unlabeled groups/apps.
+ */
+app.get('/api/coverage', authenticationRequired, async (_req, res) => {
+  try {
+    const token = await getServiceToken('okta.governance.labels.read');
+
+    // Get all label categories to collect every value ID
+    const labelsRes  = await axios.get(`${process.env.OKTA_ORG_URL}/governance/api/v1/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const categories = labelsRes.data?.data || labelsRes.data || [];
+    const valueIds   = categories.flatMap(cat =>
+      (cat.values || []).map(v => v.labelValueId || v.id).filter(Boolean)
+    );
+
+    if (valueIds.length === 0) return res.json({ labeledOrns: [] });
+
+    // For each value, collect all labeled resource ORNs (same filter pattern as label-search)
+    const orns = new Set();
+    await Promise.all(valueIds.map(async (valueId) => {
+      const filter = `labelValueId eq "${valueId}"`;
+      let url = `${process.env.OKTA_ORG_URL}/governance/api/v1/resource-labels?limit=200&filter=${encodeURIComponent(filter)}`;
+      while (url) {
+        const r     = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+        const items = Array.isArray(r.data?.data) ? r.data.data : [];
+        items.forEach(item => { if (item.orn) orns.add(item.orn); });
+        const next  = (r.headers?.link || '').match(/<([^>]+)>;\s*rel="next"/);
+        url = next ? next[1] : null;
+      }
+    }));
+
+    res.json({ labeledOrns: [...orns] });
+  } catch (error) {
+    console.error('Error fetching coverage:', error?.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch coverage data.', detail: error?.response?.data || error.message });
+  }
+});
+
+/**
  * Groups + resource label assignments
  */
 
 app.get('/api/groups', authenticationRequired, async (_req, res) => {
   try {
     const backendToken = await getServiceToken('okta.groups.read');
-    const apiUrl = `${process.env.OKTA_ORG_URL}/api/v1/groups`;
-
-    const response = await axios.get(apiUrl, {
-      headers: { Authorization: `Bearer ${backendToken}` },
-    });
-
-    res.json(response.data);
+    const all = [];
+    let url = `${process.env.OKTA_ORG_URL}/api/v1/groups?limit=200`;
+    while (url) {
+      const r    = await axios.get(url, { headers: { Authorization: `Bearer ${backendToken}` } });
+      all.push(...(r.data || []));
+      const next = (r.headers?.link || '').match(/<([^>]+)>;\s*rel="next"/);
+      url = next ? next[1] : null;
+    }
+    res.json(all);
   } catch (error) {
     console.error('Error fetching Okta groups:', error?.response?.data || error.message);
     res.status(500).json({

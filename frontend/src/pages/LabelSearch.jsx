@@ -5,6 +5,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import { CircularProgress } from '@mui/material';
+import { useApiClient } from '../hooks/useApiClient';
+import { useConfirm } from '../hooks/useConfirm';
+import { useDataContext } from '../context/DataContext';
 
 // ── ORN type inference ─────────────────────────────────
 function inferResourceType(orn = '') {
@@ -238,7 +241,10 @@ const FilterBar = ({ activeType, onTypeChange, nameFilter, onNameFilter, total, 
 
 // ── Main page ──────────────────────────────────────────
 const LabelSearch = () => {
-  const { authState, oktaAuth } = useOktaAuth();
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
+  const { confirm, confirmDialog } = useConfirm();
+  const { invalidate } = useDataContext();
 
   const [allLabels,     setAllLabels]   = useState([]);
   const [loadingLabels, setLoading]     = useState(true);
@@ -257,14 +263,11 @@ const LabelSearch = () => {
   // { [orn]: 'idle' | 'running' | 'done' | 'error' }
   const [unassignStatus, setUnassignStatus] = useState({});
 
-  const getToken = useCallback(() => oktaAuth.getAccessToken(), [oktaAuth]);
-
   // Load governance labels on mount
   useEffect(() => {
     if (!authState?.isAuthenticated) return;
     setLoading(true); setLabelsErr(null);
-    fetch('/api/governance-labels', { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    apiFetch('/api/governance-labels')
       .then(data => setAllLabels(data?.data || data || []))
       .catch(err => setLabelsErr(err?.message || 'Failed to load labels.'))
       .finally(() => setLoading(false));
@@ -291,11 +294,7 @@ const LabelSearch = () => {
 
     setSearching(true);
     try {
-      const res = await fetch(`/api/label-search?labelValueId=${encodeURIComponent(valueId)}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setResults(await res.json());
+      setResults(await apiFetch(`/api/label-search?labelValueId=${encodeURIComponent(valueId)}`));
     } catch (err) {
       setSearchErr(err?.message || 'Search failed.');
     } finally {
@@ -305,29 +304,30 @@ const LabelSearch = () => {
 
   // Unassign the currently-searched label value from a resource
   const handleUnassign = useCallback(async (orn) => {
-    const valueName = valueOptions.find(v => v.labelValueId === selectedValueId)?.name || 'this label';
-    const resourceName = results?.find(r => r.orn === orn)?.profile?.name
-      || results?.find(r => r.orn === orn)?.profile?.label
-      || orn;
+    const label = allLabels.find(l => l.labelId === selectedLabelId);
+    const valueName = label?.values?.find(v => v.labelValueId === selectedValueId)?.name || 'this label';
+    const resource = results?.find(r => r.orn === orn);
+    const resourceName = resource?.profile?.name || resource?.profile?.label || orn;
 
-    const confirmed = window.confirm(
-      `Remove "${valueName}" from "${resourceName}"?\n\nThis will unassign the label from this resource.`
+    const confirmed = await confirm(
+      `Unassign label`,
+      `Remove "${valueName}" from "${resourceName}"?`,
+      'Unassign'
     );
     if (!confirmed) return;
 
     setUnassignStatus(prev => ({ ...prev, [orn]: 'running' }));
     try {
-      const res = await fetch('/api/assignments', {
+      await apiFetch('/api/assignments', {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn, labelValueId: selectedValueId }),
+        body: { orn, labelValueId: selectedValueId },
       });
-      if (!res.ok) throw new Error(await res.text());
+      invalidate();
       setUnassignStatus(prev => ({ ...prev, [orn]: 'done' }));
     } catch (err) {
       setUnassignStatus(prev => ({ ...prev, [orn]: 'error' }));
     }
-  }, [selectedValueId, results, getToken]);
+  }, [selectedLabelId, selectedValueId, results, allLabels, apiFetch]);
 
   const selectedLabel = allLabels.find(l => l.labelId === selectedLabelId);
   const valueOptions  = selectedLabel?.values || [];
@@ -359,6 +359,7 @@ const LabelSearch = () => {
   if (!authState?.isAuthenticated) return null;
 
   return (
+    <>
     <div style={{ maxWidth: 860, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* Search controls */}
@@ -509,6 +510,8 @@ const LabelSearch = () => {
         </div>
       )}
     </div>
+    {confirmDialog}
+    </>
   );
 };
 

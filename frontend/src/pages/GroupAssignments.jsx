@@ -6,16 +6,16 @@ import { TextField } from '@okta/odyssey-react-mui';
 import GroupList from '../components/GroupList';
 import GroupDetails from '../components/GroupDetails';
 import Card from '../components/ui/Card';
-
-const OKTA_PARTITION = import.meta.env.VITE_OKTA_PARTITION || 'oktapreview';
-const OKTA_ORG_ID = import.meta.env.VITE_OKTA_ORG_ID || '00ou52nw1BecRJ5jB1d6';
-
-function buildGroupOrn(groupId) {
-  return `orn:${OKTA_PARTITION}:directory:${OKTA_ORG_ID}:groups:${groupId}`;
-}
+import { useApiClient } from '../hooks/useApiClient';
+import { useConfirm } from '../hooks/useConfirm';
+import { useDataContext } from '../context/DataContext';
+import { buildGroupOrn } from '../utils/orn';
 
 const GroupAssignments = () => {
-  const { authState, oktaAuth } = useOktaAuth();
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
+  const { confirm, confirmDialog } = useConfirm();
+  const { invalidate } = useDataContext();
 
   const [groups, setGroups] = useState(null);
   const [isLoadingGroups, setIsLoadingGroups] = useState(true);
@@ -36,26 +36,12 @@ const GroupAssignments = () => {
       setGroupsError(null);
 
       try {
-        const accessToken = oktaAuth.getAccessToken();
-
-        const [groupsResponse, labelsResponse] = await Promise.all([
-          fetch('/api/groups', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }),
-          fetch('/api/governance-labels', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }),
+        const [groupsData, labelsData] = await Promise.all([
+          apiFetch('/api/groups'),
+          apiFetch('/api/governance-labels'),
         ]);
 
-        if (!groupsResponse.ok) {
-          throw new Error(`Failed to fetch groups: ${await groupsResponse.text()}`);
-        }
-        setGroups(await groupsResponse.json());
-
-        if (!labelsResponse.ok) {
-          throw new Error(`Failed to fetch all labels: ${await labelsResponse.text()}`);
-        }
-        const labelsData = await labelsResponse.json();
+        setGroups(groupsData);
         setAllLabels(labelsData?.data || []);
       } catch (err) {
         setGroupsError(err?.message || 'Failed to load group data.');
@@ -67,7 +53,7 @@ const GroupAssignments = () => {
     if (authState?.isAuthenticated) {
       fetchInitialData();
     }
-  }, [authState, oktaAuth]);
+  }, [authState]);
 
   const fetchAssignedLabels = async (group) => {
     setIsLoadingDetails(true);
@@ -76,18 +62,7 @@ const GroupAssignments = () => {
     const orn = buildGroupOrn(group.id);
 
     try {
-      const accessToken = oktaAuth.getAccessToken();
-      const encodedOrn = encodeURIComponent(orn);
-
-      const response = await fetch(`/api/assigned-labels?orn=${encodedOrn}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch assigned labels: ${await response.text()}`);
-      }
-
-      const data = await response.json();
+      const data = await apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`);
       setAssignedLabels(data);
     } catch (err) {
       setDetailsError(err?.message || 'Failed to load assigned labels.');
@@ -106,20 +81,11 @@ const GroupAssignments = () => {
     setDetailsError(null);
 
     try {
-      const accessToken = oktaAuth.getAccessToken();
-      const resp = await fetch('/api/assignments', {
+      await apiFetch('/api/assignments', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ orn, labelValueId }),
+        body: { orn, labelValueId },
       });
-
-      if (!resp.ok) {
-        throw new Error(await resp.text());
-      }
-
+      invalidate();
       if (selectedGroup) {
         fetchAssignedLabels(selectedGroup);
       }
@@ -131,26 +97,18 @@ const GroupAssignments = () => {
   };
 
   const handleUnassignLabel = async (orn, labelValueId) => {
-    if (!window.confirm('Are you sure you want to unassign this label?')) return;
+    const ok = await confirm('Unassign label', 'Are you sure you want to unassign this label?', 'Unassign');
+    if (!ok) return;
 
     setIsSubmitting(true);
     setDetailsError(null);
 
     try {
-      const accessToken = oktaAuth.getAccessToken();
-      const resp = await fetch('/api/assignments', {
+      await apiFetch('/api/assignments', {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ orn, labelValueId }),
+        body: { orn, labelValueId },
       });
-
-      if (!resp.ok) {
-        throw new Error(await resp.text());
-      }
-
+      invalidate();
       if (selectedGroup) {
         fetchAssignedLabels(selectedGroup);
       }
@@ -188,6 +146,7 @@ const GroupAssignments = () => {
   }
 
   return (
+    <>
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
       <section className="space-y-3 lg:col-span-5 xl:col-span-4">
         <div>
@@ -252,6 +211,8 @@ const GroupAssignments = () => {
         )}
       </section>
     </div>
+    {confirmDialog}
+    </>
   );
 };
 

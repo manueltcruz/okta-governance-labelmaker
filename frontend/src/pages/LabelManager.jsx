@@ -4,19 +4,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import { Button, TextField } from '@okta/odyssey-react-mui';
 import { Chip, CircularProgress } from '@mui/material';
-
-/**
- * Tolerant of:
- * - array responses []
- * - { data: [...] }
- * - { labels: [...] }
- */
-function extractLabelArray(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (payload && Array.isArray(payload.data)) return payload.data;
-  if (payload && Array.isArray(payload.labels)) return payload.labels;
-  return [];
-}
+import { useApiClient } from '../hooks/useApiClient';
+import { useConfirm } from '../hooks/useConfirm';
+import { useDataContext } from '../context/DataContext';
+import { extractArray } from '../utils/labels';
 
 /**
  * UI supports ONLY these color names.
@@ -122,7 +113,10 @@ const TrashIcon = ({ className = 'h-4 w-4' }) => (
 );
 
 export default function LabelManager() {
-  const { oktaAuth, authState } = useOktaAuth();
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
+  const { confirm, confirmDialog } = useConfirm();
+  const { invalidate } = useDataContext();
 
   const [labels, setLabels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -152,50 +146,12 @@ export default function LabelManager() {
   // Delete value
   const [deleteValueError, setDeleteValueError] = useState('');
 
-  const accessToken = useMemo(() => {
-    if (!authState?.isAuthenticated) return '';
-    return oktaAuth.getAccessToken() || '';
-  }, [oktaAuth, authState]);
-
-  async function apiFetch(url, options = {}) {
-    if (!accessToken) throw new Error('No access token available. Please re-authenticate.');
-
-    const headers = {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${accessToken}`,
-    };
-
-    if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-      headers['Content-Type'] = headers['Content-Type'] || 'application/json';
-    }
-
-    const res = await fetch(url, {
-      ...options,
-      headers,
-      body:
-        options.body && headers['Content-Type'] === 'application/json'
-          ? JSON.stringify(options.body)
-          : options.body,
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`API ${res.status} ${res.statusText}: ${text || '(no body)'}`);
-    }
-
-    if (res.status === 204) return null;
-
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return res.text().catch(() => '');
-    return res.json();
-  }
-
   async function refreshLabels() {
     setError('');
     setLoading(true);
     try {
       const payload = await apiFetch('/api/governance-labels', { method: 'GET' });
-      setLabels(extractLabelArray(payload));
+      setLabels(extractArray(payload));
     } catch (e) {
       setError(e?.message || 'Failed to load governance labels.');
       setLabels([]);
@@ -213,9 +169,9 @@ export default function LabelManager() {
       return;
     }
 
-    if (accessToken) refreshLabels();
+    refreshLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState, accessToken]);
+  }, [authState]);
 
   /**
    * Normalize categories + values so:
@@ -305,6 +261,7 @@ export default function LabelManager() {
       setLabelColorName('gray');
       setShowCreate(false);
 
+      invalidate();
       await refreshLabels();
     } catch (e) {
       setError(e?.message || 'Failed to create label category.');
@@ -314,7 +271,7 @@ export default function LabelManager() {
   }
 
   async function handleDeleteCategory(labelId) {
-    const ok = window.confirm('Delete this label category? This cannot be undone.');
+    const ok = await confirm('Delete category', 'Delete this label category? This cannot be undone.', 'Delete');
     if (!ok) return;
 
     setError('');
@@ -329,6 +286,7 @@ export default function LabelManager() {
         setEditingValueId('');
       }
 
+      invalidate();
       await refreshLabels();
     } catch (e) {
       setError(e?.message || 'Failed to delete category.');
@@ -349,6 +307,7 @@ export default function LabelManager() {
       setAddingValueToCatId('');
       setNewValueName('');
       setNewValueColorName('gray');
+      invalidate();
       await refreshLabels();
     } catch (e) {
       setError(e?.message || 'Failed to add value.');
@@ -358,7 +317,7 @@ export default function LabelManager() {
   }
 
   async function handleDeleteValue(catId, valueId, valueName) {
-    const ok = window.confirm(`Delete the value "${valueName}"? This cannot be undone.`);
+    const ok = await confirm('Delete value', `Delete the value "${valueName}"? This cannot be undone.`, 'Delete');
     if (!ok) return;
     setError('');
     setDeleteValueError('');
@@ -372,6 +331,7 @@ export default function LabelManager() {
         setSelectedValueId('');
         setEditingValueId('');
       }
+      invalidate();
       await refreshLabels();
     } catch (e) {
       // Detect "still assigned" — backend returns 409 with a clean message
@@ -408,6 +368,7 @@ export default function LabelManager() {
       );
 
       setEditingValueId('');
+      invalidate();
       await refreshLabels();
     } catch (e) {
       setError(e?.message || 'Failed to update value.');
@@ -429,6 +390,7 @@ export default function LabelManager() {
   const rightPanelWidthClasses = 'lg:col-span-7 xl:col-span-7';
 
   return (
+    <>
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
       {/* LEFT */}
       <section className={`space-y-3 ${leftPanelWidthClasses}`}>
@@ -441,7 +403,7 @@ export default function LabelManager() {
           </div>
 
           <div className="flex flex-none items-center gap-2">
-            <IconButton title="Refresh" onClick={refreshLabels} disabled={busy || loading || !accessToken}>
+            <IconButton title="Refresh" onClick={refreshLabels} disabled={busy || loading}>
               <RefreshIcon />
             </IconButton>
 
@@ -545,7 +507,7 @@ export default function LabelManager() {
                 <Button variant="secondary" onClick={() => setShowCreate(false)} isDisabled={busy}>
                   Cancel
                 </Button>
-                <Button variant="primary" onClick={handleCreateCategory} isDisabled={busy || !accessToken}>
+                <Button variant="primary" onClick={handleCreateCategory} isDisabled={busy}>
                   {busy ? 'Creating…' : 'Create'}
                 </Button>
               </div>
@@ -877,5 +839,7 @@ export default function LabelManager() {
         )}
       </section>
     </div>
+    {confirmDialog}
+    </>
   );
 }

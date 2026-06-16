@@ -8,6 +8,7 @@ import { OktaAuth, toRelativeUrl } from '@okta/okta-auth-js';
 import { OdysseyProvider } from '@okta/odyssey-react-mui';
 import oktaConfig from './config';
 import App from './App';
+import { DataProvider } from './context/DataContext';
 import './index.css';
 
 const oktaAuth = new OktaAuth(oktaConfig);
@@ -29,7 +30,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <OdysseyProvider>
       <Router>
-        <AppWithRouter />
+        <DataProvider>
+          <AppWithRouter />
+        </DataProvider>
       </Router>
     </OdysseyProvider>
   </React.StrictMode>

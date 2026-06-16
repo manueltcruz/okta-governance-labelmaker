@@ -5,21 +5,14 @@
 //   2. Entitlements — list entitlements for the app
 //   3. (inline)     — select an entitlement to assign/unassign labels on it
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import AssignLabelForm from '../components/AssignLabelForm';
 import LabelGroups from '../components/LabelGroups';
-
-const OKTA_PARTITION = import.meta.env.VITE_OKTA_PARTITION || 'oktapreview';
-const OKTA_ORG_ID    = import.meta.env.VITE_OKTA_ORG_ID    || '00ou52nw1BecRJ5jB1d6';
-
-function buildAppOrn(appId, appType) {
-  const t = String(appType || 'generic').toLowerCase();
-  return `orn:${OKTA_PARTITION}:idp:${OKTA_ORG_ID}:apps:${t}:${appId}`;
-}
-function buildEntitlementOrn(entitlementId) {
-  return `orn:${OKTA_PARTITION}:governance:${OKTA_ORG_ID}:entitlements:${entitlementId}`;
-}
+import { useApiClient } from '../hooks/useApiClient';
+import { useConfirm } from '../hooks/useConfirm';
+import { useDataContext } from '../context/DataContext';
+import { buildAppOrn, buildEntitlementOrn } from '../utils/orn';
 
 // ── Small helpers ──────────────────────────────────────
 const Tab = ({ label, active, onClick }) => (
@@ -165,7 +158,7 @@ const AccordionRow = ({ label, sublabel, isOpen, isSelected, onClick, badge, che
 // Level 1: entitlement categories (always visible)
 // Level 2: values within a category (expands inline under category row)
 // Level 3: label panel for a selected value (expands inline under value row)
-const EntitlementsTab = ({ app, allLabels, getToken }) => {
+const EntitlementsTab = ({ app, allLabels, apiFetch, invalidate }) => {
   const [categories, setCategories]   = useState(null);
   const [loadingCats, setLoadingCats] = useState(false);
   const [catsError, setCatsError]     = useState(null);
@@ -183,16 +176,10 @@ const EntitlementsTab = ({ app, allLabels, getToken }) => {
     if (!app?.id) return;
     setOpenCatId(null); setOpenValueId(null); setCatData({});
     setCategories(null); setCatsError(null); setLoadingCats(true);
-    const load = async () => {
-      try {
-        const token = getToken();
-        const res   = await fetch(`/api/apps/${app.id}/entitlements`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error(await res.text());
-        setCategories(await res.json());
-      } catch (err) { setCatsError(err?.message || 'Failed to load entitlements.'); }
-      finally { setLoadingCats(false); }
-    };
-    load();
+    apiFetch(`/api/apps/${app.id}/entitlements`)
+      .then(setCategories)
+      .catch(err => setCatsError(err?.message || 'Failed to load entitlements.'))
+      .finally(() => setLoadingCats(false));
   }, [app?.id]);
 
   const toggleCategory = async (cat) => {
@@ -203,15 +190,9 @@ const EntitlementsTab = ({ app, allLabels, getToken }) => {
     // Fetch values if not already loaded
     if (isOpening && !catData[cat.id]) {
       setCatData(prev => ({ ...prev, [cat.id]: { values: null, loading: true, error: null } }));
-      try {
-        const token = getToken();
-        const res   = await fetch(`/api/entitlements/${cat.id}/values`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error(await res.text());
-        const values = await res.json();
-        setCatData(prev => ({ ...prev, [cat.id]: { values, loading: false, error: null } }));
-      } catch (err) {
-        setCatData(prev => ({ ...prev, [cat.id]: { values: null, loading: false, error: err?.message || 'Failed to load values.' } }));
-      }
+      apiFetch(`/api/entitlements/${cat.id}/values`)
+        .then(values => setCatData(prev => ({ ...prev, [cat.id]: { values, loading: false, error: null } })))
+        .catch(err => setCatData(prev => ({ ...prev, [cat.id]: { values: null, loading: false, error: err?.message || 'Failed to load values.' } })));
     }
   };
 
@@ -276,7 +257,8 @@ const EntitlementsTab = ({ app, allLabels, getToken }) => {
                               key={val.id}
                               value={val}
                               allLabels={allLabels}
-                              getToken={getToken}
+                              apiFetch={apiFetch}
+                              invalidate={invalidate}
                             />
                           </div>
                         )}
@@ -296,63 +278,48 @@ const EntitlementsTab = ({ app, allLabels, getToken }) => {
 };
 
 // ── Entitlement value label panel ─────────────────────
-const EntitlementValuePanel = ({ value, allLabels, getToken }) => {
+const EntitlementValuePanel = ({ value, allLabels, apiFetch, invalidate }) => {
   const [assignments, setAssignments] = useState(null);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState(null);
   const [isBusy, setIsBusy]           = useState(false);
+  const { confirm, confirmDialog }    = useConfirm();
 
   const orn = value?.orn || buildEntitlementOrn(value?.id);
 
   useEffect(() => {
     if (!value?.id) return;
     setLoading(true); setError(null); setAssignments(null);
-    const load = async () => {
-      try {
-        const token = getToken();
-        const res   = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error(await res.text());
-        setAssignments(await res.json());
-      } catch (err) { setError(err?.message || 'Failed to load labels.'); }
-      finally { setLoading(false); }
-    };
-    load();
+    apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`)
+      .then(setAssignments)
+      .catch(err => setError(err?.message || 'Failed to load labels.'))
+      .finally(() => setLoading(false));
   }, [value?.id]);
 
   const handleAssign = async (o, labelValueId) => {
     setIsBusy(true); setError(null);
     try {
-      const token = getToken();
-      const res   = await fetch('/api/assignments', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn: o, labelValueId }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const r2 = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(o)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setAssignments(await r2.json());
+      await apiFetch('/api/assignments', { method: 'POST', body: { orn: o, labelValueId } });
+      invalidate();
+      setAssignments(await apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(o)}`));
     } catch (err) { setError(err?.message || 'Failed to assign label.'); }
     finally { setIsBusy(false); }
   };
 
   const handleUnassign = async (o, labelValueId) => {
-    if (!window.confirm('Unassign this label?')) return;
+    const ok = await confirm('Unassign label', 'Remove this label from the entitlement value?', 'Unassign');
+    if (!ok) return;
     setIsBusy(true); setError(null);
     try {
-      const token = getToken();
-      const res   = await fetch('/api/assignments', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn: o, labelValueId }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const r2 = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(o)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setAssignments(await r2.json());
+      await apiFetch('/api/assignments', { method: 'DELETE', body: { orn: o, labelValueId } });
+      invalidate();
+      setAssignments(await apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(o)}`));
     } catch (err) { setError(err?.message || 'Failed to unassign label.'); }
     finally { setIsBusy(false); }
   };
 
   return (
+    <>
     <LabelPanel
       orn={orn}
       assignments={assignments}
@@ -363,16 +330,19 @@ const EntitlementValuePanel = ({ value, allLabels, getToken }) => {
       onUnassign={handleUnassign}
       isBusy={isBusy}
     />
+    {confirmDialog}
+    </>
   );
 };
 
 // ── App detail panel ───────────────────────────────────
-const AppDetail = ({ app, allLabels, getToken }) => {
+const AppDetail = ({ app, allLabels, apiFetch, invalidate }) => {
   const [activeTab, setActiveTab]     = useState('labels');
   const [assignments, setAssignments] = useState(null);
   const [loadingAssign, setLoading]   = useState(false);
   const [assignError, setError]       = useState(null);
   const [isBusy, setIsBusy]           = useState(false);
+  const { confirm, confirmDialog }    = useConfirm();
 
   const orn = useMemo(() => buildAppOrn(app?.id, app?.signOnMode), [app?.id, app?.signOnMode]);
 
@@ -383,49 +353,31 @@ const AppDetail = ({ app, allLabels, getToken }) => {
     setAssignments(null);
     setError(null);
     setLoading(true);
-    const load = async () => {
-      try {
-        const token = getToken();
-        const res   = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error(await res.text());
-        setAssignments(await res.json());
-      } catch (err) { setError(err?.message || 'Failed to load assigned labels.'); }
-      finally { setLoading(false); }
-    };
-    load();
+    apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`)
+      .then(setAssignments)
+      .catch(err => setError(err?.message || 'Failed to load assigned labels.'))
+      .finally(() => setLoading(false));
   }, [app?.id]);
 
   const handleAssign = async (orn, labelValueId) => {
     setIsBusy(true); setError(null);
     try {
-      const token = getToken();
-      const res   = await fetch('/api/assignments', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn, labelValueId }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      // Refresh
-      const r2 = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setAssignments(await r2.json());
+      await apiFetch('/api/assignments', { method: 'POST', body: { orn, labelValueId } });
+      invalidate();
+      setAssignments(await apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`));
     } catch (err) { setError(err?.message || 'Failed to assign label.'); }
     finally { setIsBusy(false); }
   };
 
   const handleUnassign = async (orn, labelValueId) => {
-    if (!window.confirm('Unassign this label from the application?')) return;
+    const ok = await confirm('Unassign label', 'Remove this label from the application?', 'Unassign');
+    if (!ok) return;
     setIsBusy(true); setError(null);
     try {
-      const token = getToken();
-      const res   = await fetch('/api/assignments', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orn, labelValueId }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const r2 = await fetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setAssignments(await r2.json());
-    } catch (err) { setError(err?.message || 'Failed to unassign label.'); }
+      await apiFetch('/api/assignments', { method: 'DELETE', body: { orn, labelValueId } });
+      invalidate();
+      setAssignments(await apiFetch(`/api/assigned-labels?orn=${encodeURIComponent(orn)}`));
+    } catch (err) { setError(err?.message || 'Failed to assign label.'); }
     finally { setIsBusy(false); }
   };
 
@@ -433,6 +385,7 @@ const AppDetail = ({ app, allLabels, getToken }) => {
   const logoUrl = app?._links?.logo?.[0]?.href;
 
   return (
+    <>
     <div>
       {/* App identity header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 20 }}>
@@ -445,15 +398,19 @@ const AppDetail = ({ app, allLabels, getToken }) => {
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <span className={app?.status === 'ACTIVE' ? 'pill-success' : 'pill'}>{app?.status}</span>
             {app?.signOnMode && <span className="pill">{app.signOnMode}</span>}
-            <span className="pill-blue">Entitlement management enabled</span>
+            {(app?.settings?.emOptInStatus === 'ENABLED' || app?.settings?.app?.emOptInStatus === 'ENABLED') && (
+              <span className="pill-blue">Entitlement management enabled</span>
+            )}
           </div>
         </div>
       </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', marginBottom: 20 }}>
-        <Tab label="App Labels"    active={activeTab === 'labels'}       onClick={() => setActiveTab('labels')} />
-        <Tab label="Entitlements"  active={activeTab === 'entitlements'} onClick={() => setActiveTab('entitlements')} />
+        <Tab label="App Labels"   active={activeTab === 'labels'}       onClick={() => setActiveTab('labels')} />
+        {(app?.settings?.emOptInStatus === 'ENABLED' || app?.settings?.app?.emOptInStatus === 'ENABLED') && (
+          <Tab label="Entitlements" active={activeTab === 'entitlements'} onClick={() => setActiveTab('entitlements')} />
+        )}
       </div>
 
       {/* Tab content */}
@@ -471,15 +428,19 @@ const AppDetail = ({ app, allLabels, getToken }) => {
       )}
 
       {activeTab === 'entitlements' && (
-        <EntitlementsTab app={app} allLabels={allLabels} getToken={getToken} />
+        <EntitlementsTab app={app} allLabels={allLabels} apiFetch={apiFetch} invalidate={invalidate} />
       )}
     </div>
+    {confirmDialog}
+    </>
   );
 };
 
 // ── Main page ──────────────────────────────────────────
 const AppAssignments = () => {
-  const { authState, oktaAuth } = useOktaAuth();
+  const { authState } = useOktaAuth();
+  const apiFetch = useApiClient();
+  const { invalidate } = useDataContext();
 
   const [apps, setApps]             = useState(null);
   const [loadingApps, setLoading]   = useState(true);
@@ -488,33 +449,35 @@ const AppAssignments = () => {
   const [selectedApp, setSelectedApp] = useState(null);
   const [allLabels, setAllLabels]     = useState([]);
 
-  const getToken = () => oktaAuth.getAccessToken();
-
   useEffect(() => {
     if (!authState?.isAuthenticated) return;
-    const load = async () => {
-      setLoading(true); setAppsError(null);
-      try {
-        const token = getToken();
-        const [appsRes, labelsRes] = await Promise.all([
-          fetch('/api/apps/entitlement-enabled', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/governance-labels',         { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
-        if (!appsRes.ok)   throw new Error(`Failed to fetch apps: ${await appsRes.text()}`);
-        if (!labelsRes.ok) throw new Error(`Failed to fetch labels: ${await labelsRes.text()}`);
-        setApps(await appsRes.json());
-        const ld = await labelsRes.json();
-        setAllLabels(ld?.data || []);
-      } catch (err) { setAppsError(err?.message || 'Failed to load.'); }
-      finally { setLoading(false); }
-    };
-    load();
+    setLoading(true); setAppsError(null);
+    Promise.all([
+      apiFetch('/api/apps'),
+      apiFetch('/api/governance-labels'),
+    ])
+      .then(([appsData, labelsData]) => {
+        setApps(Array.isArray(appsData) ? appsData : appsData?.data || []);
+        setAllLabels(labelsData?.data || []);
+      })
+      .catch(err => setAppsError(err?.message || 'Failed to load.'))
+      .finally(() => setLoading(false));
   }, [authState]);
 
-  const filteredApps = useMemo(() => {
-    if (!apps) return [];
+  const isEmEnabled = (app) =>
+    app?.settings?.emOptInStatus === 'ENABLED' ||
+    app?.settings?.app?.emOptInStatus === 'ENABLED';
+
+  const { eeApps, stdApps } = useMemo(() => {
+    if (!apps) return { eeApps: [], stdApps: [] };
     const q = searchTerm.trim().toLowerCase();
-    return q ? apps.filter(a => String(a?.label || a?.name || '').toLowerCase().includes(q)) : apps;
+    const filtered = q
+      ? apps.filter(a => String(a?.label || a?.name || '').toLowerCase().includes(q))
+      : apps;
+    return {
+      eeApps:  filtered.filter(a => isEmEnabled(a)),
+      stdApps: filtered.filter(a => !isEmEnabled(a)),
+    };
   }, [apps, searchTerm]);
 
   if (!authState?.isAuthenticated) return <div className="card" style={{ padding: 16, fontSize: 13 }}>Please sign in.</div>;
@@ -527,7 +490,11 @@ const AppAssignments = () => {
         <div className="card" style={{ padding: 16 }}>
           <div className="label" style={{ display: 'block', marginBottom: 8 }}>Applications</div>
           <input type="text" className="input" placeholder="Filter by name…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-          {apps && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-muted)' }}>{filteredApps.length} of {apps.length} apps</div>}
+          {apps && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-muted)' }}>
+              {eeApps.length + stdApps.length} of {apps.length} apps
+            </div>
+          )}
         </div>
 
         {loadingApps && <div className="card" style={{ padding: 16, fontSize: 13, color: 'var(--color-text-secondary)' }}>Loading apps…</div>}
@@ -535,16 +502,42 @@ const AppAssignments = () => {
 
         {!loadingApps && apps && (
           <div className="card" style={{ overflow: 'hidden' }}>
-            {filteredApps.length === 0
-              ? <div style={{ padding: 16, fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                  {apps.length === 0 ? 'No apps with entitlement management enabled found.' : 'No apps match your search.'}
-                </div>
-              : <ul>{filteredApps.map(app => (
-                  <li key={app.id}>
-                    <AppListItem app={app} isSelected={selectedApp?.id === app.id} onSelect={setSelectedApp} />
-                  </li>
-                ))}</ul>
-            }
+            {eeApps.length === 0 && stdApps.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                {apps.length === 0 ? 'No applications found.' : 'No apps match your search.'}
+              </div>
+            ) : (
+              <>
+                {eeApps.length > 0 && (
+                  <>
+                    <div style={{ padding: '8px 16px 6px', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border-subtle)', background: 'var(--color-bg)' }}>
+                      Entitlement Management Enabled · {eeApps.length}
+                    </div>
+                    <ul>
+                      {eeApps.map(app => (
+                        <li key={app.id}>
+                          <AppListItem app={app} isSelected={selectedApp?.id === app.id} onSelect={setSelectedApp} />
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {stdApps.length > 0 && (
+                  <>
+                    <div style={{ padding: '8px 16px 6px', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border-subtle)', borderTop: eeApps.length > 0 ? '1px solid var(--color-border)' : undefined, background: 'var(--color-bg)' }}>
+                      Standard · {stdApps.length}
+                    </div>
+                    <ul>
+                      {stdApps.map(app => (
+                        <li key={app.id}>
+                          <AppListItem app={app} isSelected={selectedApp?.id === app.id} onSelect={setSelectedApp} />
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </>
+            )}
           </div>
         )}
       </section>
@@ -552,9 +545,9 @@ const AppAssignments = () => {
       {/* Right — app detail */}
       <section className="lg:col-span-8">
         {!selectedApp
-          ? <div className="card" style={{ padding: 48 }}><EmptyState title="No application selected" subtitle="Select an app on the left to manage its labels and entitlements." /></div>
+          ? <div className="card" style={{ padding: 48 }}><EmptyState title="No application selected" subtitle="Select an app on the left to manage its governance labels." /></div>
           : <div className="card" style={{ padding: 24 }}>
-              <AppDetail app={selectedApp} allLabels={allLabels} getToken={getToken} />
+              <AppDetail app={selectedApp} allLabels={allLabels} apiFetch={apiFetch} invalidate={invalidate} />
             </div>
         }
       </section>
