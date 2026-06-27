@@ -61,7 +61,7 @@ Quick Start (Development)
 git clone <YOUR_GITHUB_REPO_URL>
 cd okta-labelmaker
 
-2) Create the root .env file
+2) Create the root .env and frontend/src/config.js files
 
 Create a file named .env in the repo root (same folder as the root package.json).
 
@@ -69,6 +69,8 @@ Example:
 touch .env
 
 Then open .env and add the required variables (see Environment Variables section below).
+
+Rename the file frontend/src/config_template.js to config.js
 
 3) Install dependencies (root + frontend + backend)
 
