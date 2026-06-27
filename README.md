@@ -152,7 +152,7 @@ git clone <YOUR_GITHUB_REPO_URL>
 cd okta-governance-labelmaker
 ```
 
-### 2) Create the root `.env` file
+### 2) Create the root `.env` and `/frontend/src/config.js` files
 
 ```bash
 cp .env.example .env
@@ -160,7 +160,15 @@ cp .env.example .env
 
 Then fill in the required values (see Environment Variables below).
 
-### 3) Install dependencies
+```bash
+cd frontend/src
+cp config_template.js config.js
+```
+
+There is no need to modify this file. 
+
+
+### 3) Install dependencies at root
 
 ```bash
 npm run install:all
